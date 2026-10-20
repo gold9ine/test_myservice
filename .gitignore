@@ -1,0 +1,9 @@
+# 비밀 값: Supabase 주소·키, Gemini 키
+.env
+
+# 비밀 값: 네이버 지도 키
+.streamlit/secrets.toml
+
+# 파이썬이 실행할 때 저절로 만드는 파일 (.claude/hooks 안의 것 포함)
+__pycache__/
+*.pyc

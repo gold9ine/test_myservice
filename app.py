@@ -384,6 +384,7 @@ def nearby_salons():
 
         # 버튼
         st.button("새 미용실", width="stretch", on_click=go, args=("새 미용실 등록",))
+        st.button("사용자 대시보드", width="stretch", on_click=go, args=("사용자 대시보드",))
 
         # 결과 자리: 등록한 미용실 목록 — 항목을 누르면 그 미용실 세부정보로 간다
         st.subheader("등록된 미용실 목록")
@@ -527,10 +528,18 @@ def salon_detail():
         st.button("이직 등록", on_click=register_move)
 
 
+def user_dashboard():
+    # 사용자 대시보드: 지금은 화면 자리와 돌아가는 버튼만 있다
+    st.warning("아직 예시 결과입니다")
+    header("사용자 대시보드")
+    back_button()
+
+
 pages = {
     "근처 미용실": nearby_salons,
     "새 미용실 등록": new_salon,
     "미용실 세부정보": salon_detail,
+    "사용자 대시보드": user_dashboard,
 }
 pages[st.session_state.page]()
 

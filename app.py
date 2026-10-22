@@ -534,5 +534,8 @@ pages = {
 }
 pages[st.session_state.page]()
 
+# 저작권: 어느 화면에서든 맨 아래에 한 줄
+st.caption("© 2026 gold9ine", text_alignment="center")
+
 # 상담 챗봇: 어느 화면에서든 오른쪽 아래 아이콘으로 연다. Supabase 가 있으면 대화 기록을 남긴다
-chatbot.render(read_env(ENV_PATH).get("GEMINI_API_KEY", ""), supabase if use_supabase() else None)
+chatbot.render(read_env(ENV_PATH).get("ANTHROPIC_API_KEY", ""), supabase if use_supabase() else None)

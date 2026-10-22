@@ -1,12 +1,11 @@
 import base64
 import html
 import io
-import json
 import urllib.error
-import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import anthropic
 import streamlit as st
 from PIL import Image, ImageDraw
 
@@ -20,19 +19,18 @@ INSTRUCTION_PATH = Path(__file__).parent / "chatbot_instruction.md"
 ICON_PATH = Path(__file__).parent / "assets" / "icons" / "bot.png"
 ICON_CROP = (190, 50, 950, 810)
 
-# Gemini 모델과 주소 (공식 문서 ai.google.dev/gemini-api/docs/models, /api/generate-content 기준)
-# 문서가 새 프로젝트에 권하는 두 모델. 앞 모델이 붐비면(503·429·시간 초과) 다음 모델로, 그래도 안 되면 처음 모델로 한 번 더
-MODELS = ["gemini-3.5-flash-lite", "gemini-3.8-flash"]
-ATTEMPTS = MODELS + MODELS[:1]
-API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent"
-BUSY_CODES = (429, 503)
+# Claude 모델 (공식 anthropic 패키지로 부른다). 짧은 상담 답이라 effort 는 채팅에 권하는 low
+MODEL = "claude-sonnet-5-5"
+EFFORT = "low"
+# 거절(refusal) 대비: 서버가 거절 종류에 맞는 다른 모델로 이어 답하게 한다 (Claude API 전용 베타)
+FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 # 대화가 길어져도 최근 몇 개만 보낸다
 MAX_TURNS = 20
 
 GREETING = "안녕하세요! 근처 미용실 안내 챗봇이에요 🦌 서비스에 대해 궁금한 걸 물어보세요."
 
-# 빈칸(공백만)으로 보냈을 때: Gemini 를 부르지 않고 이 말로 바로 답한다
+# 빈칸(공백만)으로 보냈을 때: Claude 를 부르지 않고 이 말로 바로 답한다
 BLANK_REPLY = "안녕하세요! '근처 미용실' 서비스에 대해 궁금한 점을 편하게 물어봐 주세요."
 
 # 말투 고르는 칸: 보이는 이름 → AI 에게 알려 줄 말투 설명. 첫 번째가 기본값
@@ -56,45 +54,59 @@ def system_instruction(tone):
     return instruction + "\n\n" + tone_rule + "\n\n=== PRD.md ===\n" + prd
 
 
-def ask_gemini(model, history, api_key, tone):
+def to_messages(history):
     # history: [{"role": "user" | "model", "text": ...}] — 마지막이 방금 보낸 질문
-    body = {
-        "systemInstruction": {"parts": [{"text": system_instruction(tone)}]},
-        "contents": [
-            # 빈칸 안내처럼 앱이 직접 한 답(local)은 보내지 않는다
-            {"role": turn["role"], "parts": [{"text": turn["text"]}]}
-            for turn in history
-            if not turn.get("local")
-        ][-MAX_TURNS:],
-    }
-    # 키는 주소에 넣지 않고 x-goog-api-key 헤더로 보낸다
-    request = urllib.request.Request(
-        API_URL.format(model),
-        data=json.dumps(body).encode("utf-8"),
-        headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-        method="POST",
+    # 빈칸 안내처럼 앱이 직접 한 답(local)은 보내지 않는다
+    messages = [
+        {"role": "user" if turn["role"] == "user" else "assistant", "content": turn["text"]}
+        for turn in history
+        if not turn.get("local")
+    ][-MAX_TURNS:]
+    # Claude 는 첫 말이 user 여야 한다. 잘라 낸 앞머리가 답이면 버린다
+    while messages and messages[0]["role"] != "user":
+        messages.pop(0)
+    return messages
+
+
+def ask_claude(history, api_key, tone):
+    # 대화 기록은 글자만 다시 보낸다. 말투를 바꾸면 system 이 달라져서,
+    # 예전 thinking 블록을 다시 보내면 Claude 가 '앞 대화가 바뀌었다'며 거부할 수 있기 때문이다
+    client = anthropic.Anthropic(api_key=api_key, timeout=60.0, max_retries=2)
+    response = client.beta.messages.create(
+        model=MODEL,
+        max_tokens=16000,
+        output_config={"effort": EFFORT},
+        system=system_instruction(tone),
+        messages=to_messages(history),
+        betas=[FALLBACK_BETA],
+        fallbacks="default",
     )
-    with urllib.request.urlopen(request, timeout=25) as response:
-        result = json.load(response)
-    # 답 글자는 candidates[0].content.parts 안에 있다. 여러 조각이면 이어 붙인다
-    parts = result.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-    return "".join(part.get("text", "") for part in parts)
+    # 거절이면 답 글자를 읽지 않는다
+    if response.stop_reason == "refusal":
+        return None, response.model
+    # 답에는 thinking 블록이 섞일 수 있어서 text 블록만 이어 붙인다
+    text = "".join(block.text for block in response.content if block.type == "text")
+    return text, response.model
 
 
 def reply(history, api_key, tone):
-    # 붐빔(503·429)이나 시간 초과면 다음 모델로 다시 보낸다. 그 밖의 오류는 바로 알린다
+    # 붐빔(429·529·5xx)·연결 오류는 패키지가 알아서 두 번 더 보낸다. 그래도 안 되면 안내 문구를 돌려준다
     # 돌려주는 값: (답, 답한 모델, 오류 문구)
-    for model in ATTEMPTS:
-        try:
-            return ask_gemini(model, history, api_key, tone) or "(받은 답이 비어 있어요)", model, None
-        except urllib.error.HTTPError as error:
-            if error.code not in BUSY_CODES:
-                return None, None, f"챗봇 호출 실패 ({error.code}). 잠시 뒤 다시 물어봐 주세요."
-        except urllib.error.URLError as error:
-            return None, None, f"챗봇에 연결하지 못했어요: {error.reason}"
-        except TimeoutError:
-            pass
-    return None, None, "지금 Gemini 가 붐벼서 답하지 못했어요. 잠시 뒤 다시 물어봐 주세요."
+    try:
+        answer, model = ask_claude(history, api_key, tone)
+    except anthropic.AuthenticationError:
+        return None, None, ".env 의 ANTHROPIC_API_KEY 가 맞지 않아요. 키를 확인해 주세요."
+    except anthropic.RateLimitError:
+        return None, None, "지금 질문이 몰려서 답하지 못했어요. 잠시 뒤 다시 물어봐 주세요."
+    except anthropic.APIStatusError as error:
+        if error.status_code >= 500:
+            return None, None, "지금 Claude 가 붐벼서 답하지 못했어요. 잠시 뒤 다시 물어봐 주세요."
+        return None, None, f"챗봇 호출 실패 ({error.status_code}). 잠시 뒤 다시 물어봐 주세요."
+    except anthropic.APIConnectionError:
+        return None, None, "챗봇에 연결하지 못했어요. 인터넷 연결을 확인해 주세요."
+    if answer is None:
+        return None, None, "이 질문에는 답할 수 없어요. 서비스에 대해 다르게 물어봐 주세요."
+    return answer or "(받은 답이 비어 있어요)", model, None
 
 
 # 챗봇 기록 표 (Supabase). 만드는 방법은 supabase_chatbot_logs.sql
@@ -256,14 +268,14 @@ def chat(api_key, db, avatar):
     # 말투 고르는 칸: 고른 말투는 다음 답부터 적용된다
     tone = st.selectbox("말투", list(TONES), key="chatbot_tone")
     if not api_key:
-        st.error(".env 에 GEMINI_API_KEY 를 채우면 챗봇을 쓸 수 있어요.")
+        st.error(".env 에 ANTHROPIC_API_KEY 를 채우면 챗봇을 쓸 수 있어요.")
         return
 
     # 자리 순서: 위에 대화 기록, 아래에 입력칸 (기록은 질문을 처리한 뒤에 채운다)
     messages = st.container(height=360)
     question = st.chat_input("서비스에 대해 물어보세요", key="chatbot_input")
 
-    # 질문을 받으면 기록에 넣고 Gemini 의 답을 받아 이어 붙인다
+    # 질문을 받으면 기록에 넣고 Claude 의 답을 받아 이어 붙인다
     error = None
     log_error = None
     if question is not None and not question.strip():

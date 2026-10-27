@@ -33,6 +33,14 @@ GREETING = "안녕하세요! 근처 미용실 안내 챗봇이에요 🦌 서비
 # 빈칸(공백만)으로 보냈을 때: Claude 를 부르지 않고 이 말로 바로 답한다
 BLANK_REPLY = "안녕하세요! '근처 미용실' 서비스에 대해 궁금한 점을 편하게 물어봐 주세요."
 
+# 답 점검: 정확히 세 줄이고 300자 이하여야 화면에 보인다. 벗어나면 한 번 더 묻고, 또 벗어나면 이 말을 띄운다
+MAX_CHARS = 300
+UNSURE_PREFIX = "[확실하지 않은 내용이에요]"
+RETRY_REPLY = "다시 시도해 주세요"
+
+# AI 가 쓴 답 맨 위에 붙이는 안내 한 줄 (화면에만 보이고 Claude 에 보내거나 기록에 남기지 않는다)
+DRAFT_NOTE = "AI가 쓴 초안입니다 · 확인하고 쓰세요"
+
 # 말투 고르는 칸: 보이는 이름 → AI 에게 알려 줄 말투 설명. 첫 번째가 기본값
 TONES = {
     "친절한 존댓말": "부드럽고 친절한 해요체 존댓말 (예: ~해요, ~할 수 있어요)",
@@ -89,7 +97,26 @@ def ask_claude(history, api_key, tone):
     return text, response.model
 
 
+def passes_check(answer):
+    # "[확실하지 않은 내용이에요]"로 시작하면 그대로 통과. 아니면 빈 줄 없는 정확히 세 줄 + 300자 이하
+    text = answer.strip()
+    if text.startswith(UNSURE_PREFIX):
+        return True
+    lines = text.split("\n")
+    return len(lines) == 3 and all(line.strip() for line in lines) and len(text) <= MAX_CHARS
+
+
 def reply(history, api_key, tone):
+    # 점검에 걸리면 한 번 더 묻는다. 두 번 다 걸리면 답 대신 RETRY_REPLY (답한 모델은 None)
+    # 돌려주는 값: (답, 답한 모델, 오류 문구)
+    for _ in range(2):
+        answer, model, error = reply_once(history, api_key, tone)
+        if error or passes_check(answer):
+            return answer, model, error
+    return RETRY_REPLY, None, None
+
+
+def reply_once(history, api_key, tone):
     # 붐빔(429·529·5xx)·연결 오류는 패키지가 알아서 두 번 더 보낸다. 그래도 안 되면 안내 문구를 돌려준다
     # 돌려주는 값: (답, 답한 모델, 오류 문구)
     try:
@@ -287,7 +314,11 @@ def chat(api_key, db, avatar):
         history.append({"role": "user", "text": question})
         with st.spinner("답을 쓰는 중..."):
             answer, model, error = reply(history, api_key, tone)
-        if answer:
+        if answer == RETRY_REPLY and model is None:
+            # 점검에 두 번 걸린 경우: 질문과 안내를 앱이 한 말(local)로 남겨 다음 질문 때 Claude 에 보내지 않는다
+            history[-1]["local"] = True
+            history.append({"role": "model", "text": RETRY_REPLY, "local": True})
+        elif answer:
             history.append({"role": "model", "text": answer})
             # AI 가 답했을 때만 Supabase 에 남긴다 (빈칸 안내·오류는 남기지 않음)
             if db is not None:
@@ -306,6 +337,9 @@ def chat(api_key, db, avatar):
             else:
                 # AI 가 준 답에만 복사 버튼을 붙인다 (인사말·빈칸 안내는 제외)
                 with st.chat_message("assistant", avatar=avatar):
+                    # AI 가 쓴 답이면 안내 한 줄을 답보다 먼저 보여 준다
+                    if not turn.get("local"):
+                        st.caption(DRAFT_NOTE)
                     # 마크다운은 줄바꿈 하나를 띄어쓰기로 보므로, 줄 끝에 공백 두 칸을 붙여 문장마다 줄을 바꾼다
                     st.markdown(turn["text"].strip().replace("\n", "  \n"))
                     if not turn.get("local"):

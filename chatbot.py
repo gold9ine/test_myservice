@@ -28,10 +28,10 @@ FALLBACK_BETA = "server-side-fallback-2026-07-01"
 # 대화가 길어져도 최근 몇 개만 보낸다
 MAX_TURNS = 20
 
-GREETING = "안녕하세요! 근처 미용실 안내 챗봇이에요 🦌 서비스에 대해 궁금한 걸 물어보세요."
+GREETING = "안녕하세요! 꽃사슴 안내 챗봇이에요 🦌 서비스에 대해 궁금한 걸 물어보세요."
 
 # 빈칸(공백만)으로 보냈을 때: Claude 를 부르지 않고 이 말로 바로 답한다
-BLANK_REPLY = "안녕하세요! '근처 미용실' 서비스에 대해 궁금한 점을 편하게 물어봐 주세요."
+BLANK_REPLY = "안녕하세요! '꽃사슴' 서비스에 대해 궁금한 점을 편하게 물어봐 주세요."
 
 # 답 점검: 정확히 세 줄이고 300자 이하여야 화면에 보인다. 벗어나면 한 번 더 묻고, 또 벗어나면 이 말을 띄운다
 MAX_CHARS = 300
@@ -280,9 +280,9 @@ def render(api_key, db=None):
     avatar = Image.open(io.BytesIO(icon))
 
     with st.container(key="chatbot"):
-        with st.popover("챗봇", help="근처 미용실 상담 챗봇"):
+        with st.popover("챗봇", help="꽃사슴 상담 챗봇"):
             with st.container(key="chatbot_panel"):
-                st.markdown("**근처 미용실 상담 챗봇**")
+                st.markdown("**꽃사슴 상담 챗봇**")
                 chat_tab, logs_tab = st.tabs(["대화", "지난 기록"])
                 # 대화를 먼저 처리해 방금 남긴 기록까지 지난 기록 목록에 보이게 한다
                 with chat_tab:

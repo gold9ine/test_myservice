@@ -1,4 +1,4 @@
--- 근처 미용실: data/*.csv 를 Supabase 표로 옮기는 SQL
+-- 꽃사슴: data/*.csv 를 Supabase 표로 옮기는 SQL
 -- Supabase 대시보드 > SQL Editor 에 통째로 붙여 넣고 Run 을 누르세요.
 -- 여러 번 실행해도 이미 있는 표와 줄은 건너뜁니다.
 
@@ -93,7 +93,7 @@ insert into portfolios (portfolio_id, stylist_id, title, description, year) valu
 on conflict do nothing;
 
 insert into join_requests (request_id, salon_id, stylist_id, message, requested_on) values
-  ('R01', 'S02', 'ST05', '다음 달부터 여름 헤어에서 일하게 되었습니다. 소속 미용사로 등록 부탁드립니다.', '2026-02-25'),
+  ('R01', 'S02', 'ST05', '다음 달부터 여름 헤어에서 일하게 되었습니다. 소속 디자이너로 등록 부탁드립니다.', '2026-02-25'),
   ('R02', 'S03', 'ST07', '5월부터 가을살롱으로 옮깁니다. 예전 고객분들이 찾으실 수 있게 등록 요청드립니다.', '2026-05-06'),
   ('R03', 'S06', 'ST12', '바람 헤어에서 디자이너로 새로 시작합니다. 소속 등록 부탁드립니다.', '2026-07-15'),
   ('R04', 'S04', 'ST09', '8월부터 겨울 헤어랩 소속으로 일하게 되었습니다. 확인 부탁드립니다.', '2026-07-29'),
@@ -101,7 +101,7 @@ insert into join_requests (request_id, salon_id, stylist_id, message, requested_
   ('R06', 'S05', 'ST03', '11월에 햇살 미용실로 옮길 예정입니다. 미리 등록 요청드립니다.', '2026-10-06')
 on conflict do nothing;
 
--- 미용실 주인(owner_stylist_id)은 미용사 표가 채워진 뒤에 연결한다
+-- 미용실 주인(owner_stylist_id)은 디자이너 표가 채워진 뒤에 연결한다
 do $$ begin
   if not exists (select 1 from pg_constraint where conname = 'salons_owner_stylist_id_fkey') then
     alter table salons add constraint salons_owner_stylist_id_fkey

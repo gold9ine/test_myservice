@@ -1,4 +1,4 @@
--- 근처 미용실 상담 챗봇: AI 가 답할 때마다 넣은 말과 받은 답을 남기는 표
+-- 꽃사슴 상담 챗봇: AI 가 답할 때마다 넣은 말과 받은 답을 남기는 표
 -- Supabase 대시보드 > SQL Editor 에 붙여 넣고 Run 을 누르세요. 여러 번 실행해도 괜찮습니다.
 
 create table if not exists chatbot_logs (

@@ -16,7 +16,7 @@ import chatbot
 st.set_page_config(page_title="꽃사슴", page_icon="🦌", layout="wide")
 
 # 사이드바: 서비스 설명 한 줄 (PRD.md 목표 문장)
-st.sidebar.write("디자이너가 새 미용실 이름과 연락처를 등록하면 예전 고객이 디자이너의 새 소속을 확인할 수 있게 해 줍니다.")
+st.sidebar.write("디자이너가 새 헤어샵 이름과 연락처를 등록하면 예전 고객이 디자이너의 새 소속을 확인할 수 있게 해 줍니다.")
 
 # 화면 이동: 지금 보여 줄 화면 이름을 session_state 에 둔다
 if "page" not in st.session_state:
@@ -95,12 +95,12 @@ def describe(error):
 
 
 def load_salons():
-    # 미용실(salons 표)에 소속 디자이너(stylists 표)를 붙인다
+    # 헤어샵(salons 표)에 소속 디자이너(stylists 표)를 붙인다
     try:
         stylists = read_table("stylists", "stylist_id")
         salons = read_table("salons", "salon_id")
     except urllib.error.HTTPError as error:
-        st.error(f"Supabase 에서 미용실 자료를 읽지 못했습니다 ({error.code}): {error.read().decode('utf-8')}")
+        st.error(f"Supabase 에서 헤어샵 자료를 읽지 못했습니다 ({error.code}): {error.read().decode('utf-8')}")
         st.stop()
     except urllib.error.URLError as error:
         st.error(f"Supabase 에 연결하지 못했습니다: {error.reason}")
@@ -118,7 +118,7 @@ def load_salons():
     ]
 
 
-# 미용실 목록: Supabase 자료로 채운다 (.env 가 비어 있으면 CSV 로 채우고 새로 등록한 것은 이 세션 안에서만 들고 있는다)
+# 헤어샵 목록: Supabase 자료로 채운다 (.env 가 비어 있으면 CSV 로 채우고 새로 등록한 것은 이 세션 안에서만 들고 있는다)
 if "salons" not in st.session_state:
     st.session_state.salons = load_salons()
     st.session_state.selected = 0
@@ -170,7 +170,7 @@ def geocode(query, client_id, client_secret):
 
 
 def naver_map(salons, height):
-    # 네이버 지도에 미용실 핀을 찍는다. 핀을 누르면 이름·연락처·소속 디자이너가 뜬다
+    # 네이버 지도에 헤어샵 핀을 찍는다. 핀을 누르면 이름·연락처·소속 디자이너가 뜬다
     markers = [
         {
             "lat": salon["coords"][0],
@@ -256,11 +256,11 @@ def go(page):
 
 def open_detail(index):
     st.session_state.selected = index
-    go("미용실 세부정보")
+    go("헤어샵 세부정보")
 
 
 def reload_salons(salon_id):
-    # Supabase 에 쓴 뒤 목록을 다시 읽고, 방금 다룬 미용실을 선택해 둔다
+    # Supabase 에 쓴 뒤 목록을 다시 읽고, 방금 다룬 헤어샵을 선택해 둔다
     st.session_state.salons = load_salons()
     ids = [salon["salon_id"] for salon in st.session_state.salons]
     st.session_state.selected = ids.index(salon_id) if salon_id in ids else 0
@@ -281,7 +281,7 @@ def register_salon():
         )
         open_detail(len(st.session_state.salons) - 1)
         return
-    # salons 표에 한 줄 넣는다. 로그인이 없으므로 미용실 주인(owner_stylist_id)은 비워 둔다
+    # salons 표에 한 줄 넣는다. 로그인이 없으므로 헤어샵 주인(owner_stylist_id)은 비워 둔다
     try:
         salon_id = next_id("salons", "salon_id", "S")
         supabase(
@@ -297,10 +297,10 @@ def register_salon():
             },
         )
     except urllib.error.URLError as error:
-        st.session_state.save_error = f"미용실을 저장하지 못했습니다 {describe(error)}"
+        st.session_state.save_error = f"헤어샵을 저장하지 못했습니다 {describe(error)}"
         return
     reload_salons(salon_id)
-    go("미용실 세부정보")
+    go("헤어샵 세부정보")
 
 
 def register_move():
@@ -318,7 +318,7 @@ def register_move():
             "GET", f"stylists?select=stylist_id,salon_id&name=eq.{urllib.parse.quote(name)}"
         )
         if len(matches) == 1:
-            # 같은 이름의 디자이너가 한 명 있으면: 이직 기록(moves)을 남기고 소속을 이 미용실로 바꾼다
+            # 같은 이름의 디자이너가 한 명 있으면: 이직 기록(moves)을 남기고 소속을 이 헤어샵으로 바꾼다
             stylist = matches[0]
             if stylist["salon_id"] != salon["salon_id"]:
                 supabase(
@@ -439,7 +439,7 @@ def remember_region():
 
 
 def region_select():
-    # 지역 고르는 칸(사이드바): 미용실이 한 곳이라도 있는 지역만 보인다. 처음에는 전북특별자치도
+    # 지역 고르는 칸(사이드바): 헤어샵이 한 곳이라도 있는 지역만 보인다. 처음에는 전북특별자치도
     counts = {name: 0 for name, _, _ in REGIONS}
     for salon in st.session_state.salons:
         region = salon_region(salon)
@@ -464,14 +464,14 @@ def region_select():
 
 
 def nearby_salons():
-    header("꽃사슴")
+    header("근처 헤어샵")
 
     # 넣는 자리(사이드바): 지도 SDK가 없으므로 위치는 주소나 좌표 텍스트로 받는다
     st.sidebar.text_input("내 위치", placeholder="예: 서울시 ○○구 ○○로 12 또는 37.5665, 126.9780")
     region = region_select()
-    st.sidebar.button("새 미용실", width="stretch", on_click=go, args=("새 미용실 등록",))
+    st.sidebar.button("새 헤어샵", width="stretch", on_click=go, args=("새 헤어샵 등록",))
 
-    # 고른 지역 안의 미용실만 지도와 목록에 보인다. 번호(index)는 전체 목록 기준 그대로 쓴다
+    # 고른 지역 안의 헤어샵만 지도와 목록에 보인다. 번호(index)는 전체 목록 기준 그대로 쓴다
     shown = [
         (index, salon)
         for index, salon in enumerate(st.session_state.salons)
@@ -487,7 +487,7 @@ def nearby_salons():
             with st.container(horizontal=True):
                 salon_popovers(shown)
         else:
-            # 지도 자리: 핀을 누르면 미용실 정보가 지도 위에 겹쳐 뜬다
+            # 지도 자리: 핀을 누르면 헤어샵 정보가 지도 위에 겹쳐 뜬다
             with st.container(
                 border=True,
                 height=MAP_HEIGHT,
@@ -498,8 +498,8 @@ def nearby_salons():
                 st.caption("(지도 자리 — 네이버 지도 키를 넣으면 실제 지도가 보입니다)")
 
     with list_col:
-        # 결과 자리: 등록한 미용실 목록 — 항목을 누르면 그 미용실 세부정보로 간다. 길어지면 이 칸 안에서만 스크롤
-        st.markdown("**등록된 미용실 목록**")
+        # 결과 자리: 등록한 헤어샵 목록 — 항목을 누르면 그 헤어샵 세부정보로 간다. 길어지면 이 칸 안에서만 스크롤
+        st.markdown("**등록된 헤어샵 목록**")
         with st.container(height=MAP_HEIGHT - 40):
             for index, salon in shown:
                 st.button(
@@ -529,7 +529,7 @@ def salon_popovers(shown):
 
 
 def new_salon():
-    header("새 미용실 등록")
+    header("새 헤어샵 등록")
     back_button()
 
     # 넣는 자리(위 한 줄): 이름 | 연락처 | 지도 위치 | 등록
@@ -537,7 +537,7 @@ def new_salon():
         [2, 2, 3, 1], vertical_alignment="bottom"
     )
     with name_col:
-        st.text_input("미용실 이름", placeholder="예: 헤어스튜디오 봄", key="new_name")
+        st.text_input("헤어샵 이름", placeholder="예: 헤어스튜디오 봄", key="new_name")
     with phone_col:
         st.text_input("연락처", placeholder="예: 010-0000-0000", key="new_phone")
     with location_col:
@@ -548,14 +548,14 @@ def new_salon():
             key="new_location",
         )
     with button_col:
-        # 버튼: 입력값을 Supabase 에 저장하고 등록한 미용실의 세부정보로 이동한다
+        # 버튼: 입력값을 Supabase 에 저장하고 등록한 헤어샵의 세부정보로 이동한다
         st.button("등록", width="stretch", on_click=register_salon)
 
     # 결과 자리(가운데): 지도 위치를 입력하면 그 자리를 지도에 바로 보여 준다
     location = st.session_state.get("new_location", "")
     coords = geocode(location, *naver_keys())
     preview = {
-        "name": st.session_state.get("new_name") or "새 미용실",
+        "name": st.session_state.get("new_name") or "새 헤어샵",
         "phone": st.session_state.get("new_phone", ""),
         "coords": coords,
         "stylists": [],
@@ -591,8 +591,8 @@ def salon_detail():
     header(f"{salon['name']} 세부정보")
     back_button()
 
-    # 탭: 자주 보는 미용실 정보 / 가끔 쓰는 이직 등록
-    info_tab, move_tab = st.tabs(["미용실 정보", "이직 등록"])
+    # 탭: 자주 보는 헤어샵 정보 / 가끔 쓰는 이직 등록
+    info_tab, move_tab = st.tabs(["헤어샵 정보", "이직 등록"])
 
     with info_tab:
         map_col, info_col = st.columns(2)
@@ -609,9 +609,9 @@ def salon_detail():
                     st.markdown(f"📍 **{salon['name']}**")
                     st.caption(salon["location"])
 
-        # 결과 자리: 선택한 미용실 정보
+        # 결과 자리: 선택한 헤어샵 정보
         with info_col:
-            # key 에 미용실 번호를 붙여, 다른 미용실로 바꿔도 값이 새로 그려지게 한다
+            # key 에 헤어샵 번호를 붙여, 다른 헤어샵으로 바꿔도 값이 새로 그려지게 한다
             address_col, phone_col = st.columns(2)
             with address_col:
                 st.text_input(
@@ -632,7 +632,7 @@ def salon_detail():
     with move_tab:
         input_col, result_col = st.columns(2)
         with input_col:
-            # 넣는 자리 + 버튼: 이직 등록을 누르면 이 미용실 소속 디자이너 목록에 추가된다
+            # 넣는 자리 + 버튼: 이직 등록을 누르면 이 헤어샵 소속 디자이너 목록에 추가된다
             st.text_input("디자이너 이름", placeholder="예: 디자이너 4", key="move_name")
             st.button("이직 등록", on_click=register_move)
         with result_col:
@@ -642,8 +642,8 @@ def salon_detail():
 
 pages = {
     "꽃사슴": nearby_salons,
-    "새 미용실 등록": new_salon,
-    "미용실 세부정보": salon_detail,
+    "새 헤어샵 등록": new_salon,
+    "헤어샵 세부정보": salon_detail,
 }
 pages[st.session_state.page]()
 

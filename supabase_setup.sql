@@ -101,7 +101,7 @@ insert into join_requests (request_id, salon_id, stylist_id, message, requested_
   ('R06', 'S05', 'ST03', '11월에 햇살 미용실로 옮길 예정입니다. 미리 등록 요청드립니다.', '2026-10-06')
 on conflict do nothing;
 
--- 미용실 주인(owner_stylist_id)은 디자이너 표가 채워진 뒤에 연결한다
+-- 헤어샵 주인(owner_stylist_id)은 디자이너 표가 채워진 뒤에 연결한다
 do $$ begin
   if not exists (select 1 from pg_constraint where conname = 'salons_owner_stylist_id_fkey') then
     alter table salons add constraint salons_owner_stylist_id_fkey

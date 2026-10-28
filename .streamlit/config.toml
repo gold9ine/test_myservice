@@ -1,0 +1,8 @@
+# 꽃사슴 색 조합 (보라 · main-reference2.png 기준): 이 줄들만 고치면 모든 화면 색이 함께 바뀐다
+# app.py 는 이 값을 st.get_option("theme.…") 으로 읽어 첫 화면·메인 화면 꾸밈과 옅은 색(강조색에 흰색을 섞은 것)에도 쓴다
+[theme]
+base = "light"
+backgroundColor = "#FFFFFF"            # 배경
+textColor = "#1A1A1A"                  # 글자
+primaryColor = "#513BBD"               # 강조
+secondaryBackgroundColor = "#F1EFFB"   # 입력칸 · 사이드바 같은 보조 바탕 (강조색을 아주 옅게)

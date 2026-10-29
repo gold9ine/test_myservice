@@ -85,6 +85,9 @@ def use_supabase():
 
 def supabase(method, path, body=None):
     # Supabase REST API 호출: 키를 apikey 와 Authorization 헤더에 함께 싣는다
+    # 쓰기를 막아 둔 동안에는 읽기(GET)만 보낸다
+    if method != "GET" and not DB_WRITE_OPEN:
+        raise urllib.error.URLError(DB_WRITE_CLOSED)
     url, key = supabase_config()
     headers = {
         "apikey": key,
@@ -123,6 +126,14 @@ def describe(error):
 
 # 지금 서비스에 보여 줄 업종: 아직 헤어샵만. 네일샵(nail) · 피부샵(skin)을 열 때 여기에 더한다
 SERVICE_CATEGORIES = {"hair"}
+
+# 새 헤어샵 등록: 지금은 막아 둔다. 다시 열 때 True 로 바꾼다
+NEW_SALON_OPEN = False
+NEW_SALON_CLOSED = "지금은 새 헤어샵 등록을 막아 두었어요"
+
+# Supabase 에 쓰기(넣기 · 고치기 · 지우기): 지금은 막아 두고 읽기만 한다. 다시 열 때 True 로 바꾼다
+DB_WRITE_OPEN = False
+DB_WRITE_CLOSED = "지금은 데이터베이스에 저장하는 것을 막아 두었어요"
 
 
 @st.cache_data(ttl=30, show_spinner=False)
@@ -210,7 +221,12 @@ def load_salons():
             "location": row["address"],
             # 업종: supabase_categories.sql 을 실행하기 전이라 칸이 없거나 비어 있으면 헤어샵
             "category": row.get("category_id") or "hair",
-            "coords": (float(row["lat"]), float(row["lng"])),
+            # 좌표 없이 등록한 헤어샵(위도·경도가 빈 값)은 지도에 찍지 않는다
+            "coords": (
+                (float(row["lat"]), float(row["lng"]))
+                if row.get("lat") not in (None, "") and row.get("lng") not in (None, "")
+                else None
+            ),
             "details": salon_details(row),
             "stylists": [s["name"] for s in stylists if s["salon_id"] == row["salon_id"]],
             "designers": [
@@ -420,6 +436,10 @@ def reload_salons(salon_id):
 
 
 def register_salon():
+    # 등록을 막아 둔 동안에는 아무것도 저장하지 않는다
+    if not NEW_SALON_OPEN:
+        st.session_state.save_error = NEW_SALON_CLOSED
+        return
     coords = geocode(st.session_state.new_location, *naver_keys())
     if not use_supabase():
         st.session_state.salons.append(
@@ -754,7 +774,8 @@ def main_nav():
                 # 로그인한 상태: 마이페이지 아래로 헤어샵 등록 · 내 대시보드 · 로그아웃
                 with st.popover("👤 마이페이지", key="nav_my"), st.container(key="my_menu", gap="small"):
                     st.button("새 헤어샵 등록", key="nav_new", type="tertiary", width="stretch",
-                              on_click=go, args=("새 헤어샵 등록",))
+                              on_click=go, args=("새 헤어샵 등록",),
+                              disabled=not NEW_SALON_OPEN, help=None if NEW_SALON_OPEN else NEW_SALON_CLOSED)
                     st.button("내 대시보드", key="nav_dash", type="tertiary", width="stretch",
                               disabled=True, help=NOT_READY)
                     st.html('<hr class="my-menu-line">')
@@ -1111,7 +1132,8 @@ def new_salon():
             key="new_location",
         )
         # 버튼: 입력값을 Supabase 에 저장하고 등록한 헤어샵의 세부정보로 이동한다
-        st.button("등록", type="primary", width="stretch", on_click=register_salon)
+        st.button("등록", type="primary", width="stretch", on_click=register_salon,
+                  disabled=not NEW_SALON_OPEN, help=None if NEW_SALON_OPEN else NEW_SALON_CLOSED)
         st.divider()
         back_button()
         st.warning("아직 예시 결과입니다")
@@ -1313,7 +1335,9 @@ def salon_detail():
             with input_col:
                 # 넣는 자리 + 버튼: 이직 등록을 누르면 이 헤어샵 소속 디자이너 목록에 추가된다
                 st.text_input("디자이너 이름", placeholder="예: 디자이너 4", key="move_name")
-                st.button("이직 등록", type="primary", width="stretch", on_click=register_move)
+                move_closed = use_supabase() and not DB_WRITE_OPEN
+                st.button("이직 등록", type="primary", width="stretch", on_click=register_move,
+                          disabled=move_closed, help=DB_WRITE_CLOSED if move_closed else None)
             with result_col:
                 # 결과 자리: 등록하자마자 이 탭에서 바로 확인할 수 있게 소속 디자이너 목록을 함께 둔다
                 stylist_list(salon, 220)
@@ -1888,5 +1912,8 @@ pages[st.session_state.page]()
 # 저작권: 어느 화면에서든 맨 아래에 한 줄
 st.caption("© 2026 gold9ine", text_alignment="center")
 
-# 상담 챗봇: 어느 화면에서든 오른쪽 아래 아이콘으로 연다. Supabase 가 있으면 대화 기록을 남긴다
-chatbot.render(read_env(ENV_PATH).get("ANTHROPIC_API_KEY", ""), supabase if use_supabase() else None)
+# 상담 챗봇: 어느 화면에서든 오른쪽 아래 아이콘으로 연다. Supabase 가 있고 쓰기가 열려 있으면 대화 기록을 남긴다
+chatbot.render(
+    read_env(ENV_PATH).get("ANTHROPIC_API_KEY", ""),
+    supabase if use_supabase() and DB_WRITE_OPEN else None,
+)

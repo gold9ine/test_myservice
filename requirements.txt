@@ -1,0 +1,4 @@
+streamlit==1.65.0
+anthropic==2.1.0
+pandas==3.0.6
+pillow==12.3.0

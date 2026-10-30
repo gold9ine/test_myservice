@@ -1,4 +1,8 @@
+# 모든 화면 파일의 웹 화면을 만든다 (app.py 의 네이버 지도 표시 포함)
 streamlit==1.65.0
+# Claude 에게 묻고 답을 받는다: chatbot.py 상담 챗봇, helper.py 챗봇
 anthropic==2.1.0
+# 표 데이터를 다룬다: lunch.py 맛집 표, practice_table.py 문의 CSV 읽기, subs.py 구독 표
 pandas==3.0.6
+# 그림을 줄이고 다듬는다: app.py 디자이너 얼굴·그림 미리보기, chatbot.py 동그란 챗봇 아이콘
 pillow==12.3.0

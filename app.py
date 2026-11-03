@@ -722,7 +722,7 @@ def find_panel():
     query = st.text_input(
         "검색", placeholder="지역, 헤어샵 이름 검색", key="search_q", label_visibility="collapsed"
     )
-    st.button("◎ 내 위치", width="stretch", disabled=True, help=NOT_READY)
+    st.button("◎ 내 위치", key="my_location", width="stretch", disabled=True, help=NOT_READY)
 
     st.markdown("**지역 선택**")
     region = region_select(st)
@@ -732,11 +732,12 @@ def find_panel():
         "구", [salon_area(s)[1] for s in in_region if city in ("전체", salon_area(s)[0])], "gu"
     )
 
-    # 필터: 자리만 잡아 둔다 (아직 자료가 없다)
-    st.markdown("**필터**")
-    for name in ["시술 종류", "가격대", "영업 시간"]:
-        with st.expander(name):
-            st.caption(NOT_READY)
+    # 필터: 자리만 잡아 둔다 (아직 자료가 없다). 휴대폰에서는 숨긴다
+    with st.container(key="filters"):
+        st.markdown("**필터**")
+        for name in ["시술 종류", "가격대", "영업 시간"]:
+            with st.expander(name):
+                st.caption(NOT_READY)
 
     # 검색어 · 지역은 고르는 즉시 반영된다. 「검색하기」는 입력을 마치고 누르는 자리
     st.button("검색하기", key="search_btn", type="primary", width="stretch")
@@ -824,8 +825,9 @@ def designer_cards(salon):
         st.caption("아직 소속 디자이너가 없습니다.")
         return
     per_row = 5
+    # dcards: 휴대폰에서 한 줄에 두 장씩 보이게 CSS 로 집어내는 이름
     for row_start in range(0, len(names), per_row):
-        cols = st.columns(per_row)
+        cols = st.container(key=f"dcards_{row_start}").columns(per_row)
         for k, (col, name) in enumerate(zip(cols, names[row_start:row_start + per_row])):
             designer = known.get(name, {"id": "", "name": name, "career": 0, "profile": pro_profile({})})
             specialty = titles.get(designer["id"], [])
@@ -865,7 +867,7 @@ def salon_sheet(index, salon):
                 </div>
                 """
             )
-        with action_col:
+        with action_col, st.container(key="sheet_actions"):
             st.button("자세히 보기", key="sheet_detail", width="stretch", on_click=open_detail, args=(index,))
             st.button(
                 "이직 등록", key="sheet_move", type="primary", width="stretch", on_click=open_detail, args=(index,)
@@ -1065,6 +1067,55 @@ MAIN_STYLE = f"""
 .dcard span {{ color: {THEME_ACCENT}; font-size: 0.9rem; }}
 .dcard p {{ margin: 0.2rem 0; color: {THEME_TEXT}; font-size: 0.9rem; }}
 .dcard .dcard-career {{ color: {rgba(THEME_TEXT, 0.6)}; }}
+/* 휴대폰(폭 640px 이하): Streamlit 이 모든 칸을 위아래로 쌓으므로 화면마다 다시 맞춘다 */
+@media (max-width: 640px) {{
+    /* 맨 위 메뉴 줄: [꽃사슴 | 알림 · 로그인] 한 줄 + 그 아래 주 메뉴 한 줄(넘치면 옆으로 밀어 본다) */
+    .st-key-topnav {{ padding: 0.2rem 0 0.3rem; }}
+    .st-key-topnav > div > [data-testid="stHorizontalBlock"] {{ gap: 0 0.5rem; }}
+    .st-key-topnav > div > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {{ min-width: 0 !important; flex: 1 1 auto; width: auto; }}
+    .st-key-topnav > div > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child {{ flex: 0 0 auto; }}
+    .st-key-topnav > div > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:nth-child(2) {{ order: 3; flex: 1 1 100%; }}
+    .st-key-topnav [data-testid="stColumn"]:nth-child(2) [data-testid="stHorizontalBlock"] {{
+        flex-wrap: nowrap; justify-content: flex-start; gap: 1.1rem; overflow-x: auto; scrollbar-width: none;
+    }}
+    .st-key-topnav [data-testid="stColumn"] [data-testid="stHorizontalBlock"] > div {{ flex: 0 0 auto; width: auto; }}
+    .st-key-topnav [data-testid="stColumn"]:last-child [data-testid="stHorizontalBlock"] {{ gap: 0.4rem; flex-wrap: nowrap; }}
+    .st-key-brand button p {{ font-size: 1.35rem !important; }}
+    .st-key-topnav button p {{ font-size: 0.95rem; white-space: nowrap; }}
+    .st-key-nav_signup button {{ padding: 0.2rem 0.8rem; min-height: 0; }}
+    /* 왼쪽 사이드 영역: 안쪽 여백을 줄이고, 아직 「준비 중」인 내 위치 · 필터는 숨긴다 */
+    [data-testid="stHorizontalBlock"]:has(.st-key-side) {{ row-gap: 1.2rem; }}
+    .st-key-side {{ padding: 1rem; border-radius: 14px; }}
+    .st-key-my_location, .st-key-filters {{ display: none; }}
+    /* 지도: 휴대폰 화면에 다 들어오게 낮춘다 (지도 위에서는 손가락이 지도를 움직이므로 너무 길면 화면을 못 내린다) */
+    .st-key-map_area div[id^="map_"] {{ max-height: 340px; }}
+    /* 아래 상세 판 */
+    .st-key-sheet {{ padding: 1rem; border-radius: 16px; }}
+    .st-key-sheet .salon-photo {{ max-height: 150px; object-fit: cover; }}
+    .sheet-info h2 {{ font-size: 1.35rem; }}
+    .st-key-sheet_actions {{ flex-direction: row; }}
+    .st-key-sheet_actions > div {{ flex: 1 1 0; min-width: 0; }}
+    /* 디자이너 카드: 한 줄에 두 장. 이름이 없는 빈 칸은 숨긴다 */
+    [class*="st-key-dcards_"] [data-testid="stColumn"] {{ min-width: calc(50% - 0.5rem) !important; flex: 0 0 calc(50% - 0.5rem); }}
+    [class*="st-key-dcards_"] [data-testid="stColumn"]:not(:has([class*="st-key-dcard_"])) {{ display: none; }}
+    .dcard b {{ font-size: 1rem; }}
+    .dcard p, .dcard span {{ font-size: 0.82rem; }}
+    [class*="st-key-dcard_"] button {{ padding: 0.3rem 0.4rem; min-height: 0; }}
+    [class*="st-key-dcard_"] button p {{ font-size: 0.8rem; white-space: nowrap; }}
+    /* 헤어샵 세부정보 */
+    .detail-summary h2 {{ font-size: 1.3rem; }}
+    /* 디자이너 상세: 포트폴리오 두 장씩, 개수 · 정렬은 한 줄에 */
+    .pro-head h2 {{ font-size: 1.35rem; }}
+    .st-key-pf_head [data-testid="stHorizontalBlock"] {{ flex-wrap: nowrap; }}
+    .st-key-pf_head [data-testid="stColumn"] {{ min-width: 0 !important; flex: 1 1 0; }}
+    .st-key-pf_head [data-testid="stColumn"]:last-child {{ flex: 0 0 7rem; }}
+    .pf-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem; }}
+    .pf-body {{ padding: 0.6rem 0.7rem 0.7rem; }}
+    .pf-body h5 {{ font-size: 0.92rem; }}
+    .pf-body p {{ font-size: 0.8rem; }}
+    .menu-row {{ grid-template-columns: 1fr 3.5rem 6rem; font-size: 0.92rem; }}
+    .kw-bar {{ grid-template-columns: 6.5rem 1fr 2rem; gap: 0.5rem; font-size: 0.9rem; }}
+}}
 </style>
 """
 
@@ -1153,17 +1204,18 @@ def new_salon():
             "coords": coords,
             "stylists": [],
         }
-        if not naver_map([preview], BODY_MAP_HEIGHT):
-            with st.container(
-                border=True,
-                height=BODY_MAP_HEIGHT,
-                horizontal_alignment="center",
-                vertical_alignment="center",
-            ):
-                st.markdown("📍 지도에서 위치 선택")
-                if coords:
-                    st.caption(f"위도 {coords[0]}, 경도 {coords[1]}")
-                st.caption("(지도 자리 — 네이버 지도 키를 넣으면 실제 지도가 보입니다)")
+        with st.container(key="map_area"):
+            if not naver_map([preview], BODY_MAP_HEIGHT):
+                with st.container(
+                    border=True,
+                    height=BODY_MAP_HEIGHT,
+                    horizontal_alignment="center",
+                    vertical_alignment="center",
+                ):
+                    st.markdown("📍 지도에서 위치 선택")
+                    if coords:
+                        st.caption(f"위도 {coords[0]}, 경도 {coords[1]}")
+                    st.caption("(지도 자리 — 네이버 지도 키를 넣으면 실제 지도가 보입니다)")
         if location.strip() and not coords:
             st.caption("입력한 위치를 지도에서 찾지 못했습니다.")
 
@@ -1526,7 +1578,7 @@ def portfolio_tab(designer):
     picked = st.pills("시술 종류", PORTFOLIO_FILTERS, key=key, label_visibility="collapsed") or "전체"
     shown = [p for p in mine if picked == "전체" or p["service_type"] == picked]
 
-    count_col, sort_col = st.columns([4, 1], vertical_alignment="center")
+    count_col, sort_col = st.container(key="pf_head").columns([4, 1], vertical_alignment="center")
     with count_col:
         st.html(f'<h4 class="pf-count">{html.escape(picked)} 포트폴리오 <span>{len(shown)}</span></h4>')
     with sort_col:
@@ -1878,6 +1930,18 @@ def landing():
             .scene {{ opacity: 0.35; }}
             .hero-copy h1 {{ font-size: 2.4rem; }}
         }}
+        /* 휴대폰: 제목 · 소개 글자와 히어로 높이를 한 화면에 맞게 줄인다 */
+        @media (max-width: 640px) {{
+            .st-key-hero {{ min-height: 440px; padding: 2rem 1.25rem; border-radius: 20px; }}
+            .hero-copy h1 {{ font-size: 2rem; }}
+            .hero-copy p {{ font-size: 1.1rem; }}
+            .st-key-start button {{ padding: 0.5rem 2rem; }}
+            .st-key-start button p {{ font-size: 1.15rem; }}
+            .posters-title {{ font-size: 1.35rem; margin-top: 2rem; }}
+            .posters {{ gap: 1.8rem; padding: 1.8rem 0.5rem 0.5rem; }}
+            .poster h3 {{ font-size: 1.2rem; }}
+            .poster p {{ font-size: 0.98rem; }}
+        }}
         </style>
         """
     )
@@ -1912,10 +1976,26 @@ pages = {
     "헤어샵 세부정보": salon_detail,
     "디자이너 상세": designer_detail,
 }
+# 다른 화면으로 넘어가면 맨 위부터 보이게 한다. Streamlit 은 앞 화면의 스크롤 위치를 그대로 두어서,
+# 긴 화면(특히 휴대폰)에서 아래쪽 단추를 누르면 새 화면이 맨 아래에서 열린다
+if st.session_state.get("shown_page") != st.session_state.page:
+    st.session_state.shown_page = st.session_state.page
+    # 넘어간 횟수를 넣어 매번 다른 내용으로 만든다. 내용이 같으면 Streamlit 이 앞 요소를 그대로 써서 스크립트가 다시 돌지 않는다
+    st.session_state.page_turns = st.session_state.get("page_turns", 0) + 1
+    st.html(
+        f"""<script data-turn="{st.session_state.page_turns}">
+        setTimeout(() => {{
+            const main = document.querySelector('[data-testid="stMain"]');
+            if (main) main.scrollTo(0, 0);
+            window.scrollTo(0, 0);
+        }}, 50);
+        </script>""",
+        unsafe_allow_javascript=True,
+    )
 pages[st.session_state.page]()
 
 # 저작권: 어느 화면에서든 맨 아래에 한 줄
-st.caption("© 2026 gold9ine", text_alignment="center")
+st.caption("© 2026 By. 행님", text_alignment="center")
 
 # 상담 챗봇: 어느 화면에서든 오른쪽 아래 아이콘으로 연다. Supabase 가 있고 쓰기가 열려 있으면 대화 기록을 남긴다
 chatbot.render(

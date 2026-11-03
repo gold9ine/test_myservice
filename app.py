@@ -1996,6 +1996,7 @@ pages[st.session_state.page]()
 
 # 저작권: 어느 화면에서든 맨 아래에 한 줄
 st.caption("© 2026 By. HangNim", text_alignment="center")
+st.caption("마지막으로 고친 날 2026-11-03 · 기능 화면 안내 글을 넣음", text_alignment="center")
 
 # 상담 챗봇: 어느 화면에서든 오른쪽 아래 아이콘으로 연다. Supabase 가 있고 쓰기가 열려 있으면 대화 기록을 남긴다
 chatbot.render(

@@ -3,6 +3,7 @@ import csv
 import hashlib
 import html
 import json
+import math
 import re
 import urllib.error
 import urllib.parse
@@ -48,6 +49,13 @@ THEME_MID = mix_white(THEME_ACCENT, 0.5)
 # streamlit run app.py 로 열면 서비스를 소개하는 첫 화면이 먼저 뜬다
 if "page" not in st.session_state:
     st.session_state.page = "첫 화면"
+
+# 구글 로그인: 맨 위 메뉴 줄의 회원가입을 누르면 들어온다. 키는 .streamlit/secrets.toml 의 [auth] · [auth.google] 에 넣는다
+# 들어온 뒤 맨 위 한 줄: 들어온 사람의 이름 (구글 계정 이름이 없으면 메일 주소) · 구글 로그아웃
+if st.user.is_logged_in:
+    with st.container(horizontal=True, horizontal_alignment="right", vertical_alignment="center"):
+        st.markdown(f"👤 **{html.escape(st.user.get('name') or st.user.get('email') or '')}** 님")
+        st.button("구글 로그아웃", key="google_logout", type="tertiary", on_click=st.logout)
 
 DATA_DIR = Path(__file__).parent / "data"
 ENV_PATH = Path(__file__).parent / ".env"
@@ -132,12 +140,12 @@ def describe(error):
 # 지금 서비스에 보여 줄 업종: 아직 헤어샵만. 네일샵(nail) · 피부샵(skin)을 열 때 여기에 더한다
 SERVICE_CATEGORIES = {"hair"}
 
-# 새 헤어샵 등록: 지금은 막아 둔다. 다시 열 때 True 로 바꾼다
-NEW_SALON_OPEN = False
+# 새 헤어샵 등록: 지금은 열어 둔다. 다시 막을 때 False 로 바꾼다
+NEW_SALON_OPEN = True
 NEW_SALON_CLOSED = "지금은 새 헤어샵 등록을 막아 두었어요"
 
-# Supabase 에 쓰기(넣기 · 고치기 · 지우기): 지금은 막아 두고 읽기만 한다. 다시 열 때 True 로 바꾼다
-DB_WRITE_OPEN = False
+# Supabase 에 쓰기(넣기 · 고치기 · 지우기): 지금은 열어 둔다. 다시 막고 읽기만 할 때 False 로 바꾼다
+DB_WRITE_OPEN = True
 DB_WRITE_CLOSED = "지금은 데이터베이스에 저장하는 것을 막아 두었어요"
 
 
@@ -224,6 +232,8 @@ def load_salons():
             "name": row["name"],
             "phone": row["phone"],
             "location": row["address"],
+            # 이 헤어샵을 만든 디자이너 (사용자 대시보드의 헤어샵 관리에 쓴다). 없으면 빈 값
+            "owner_id": row.get("owner_stylist_id") or "",
             # 업종: supabase_categories.sql 을 실행하기 전이라 칸이 없거나 비어 있으면 헤어샵
             "category": row.get("category_id") or "hair",
             # 좌표 없이 등록한 헤어샵(위도·경도가 빈 값)은 지도에 찍지 않는다
@@ -252,7 +262,8 @@ if "salons" not in st.session_state:
     st.session_state.selected = 0
 # 새 칸(details)을 읽기 전에 열어 둔 화면이면 헤어샵 자료를 한 번 새로 읽는다
 elif any(
-    "details" not in salon or any("profile" not in d for d in salon.get("designers", []))
+    "details" not in salon or "owner_id" not in salon
+    or any("profile" not in d for d in salon.get("designers", []))
     for salon in st.session_state.salons
 ):
     st.session_state.salons = load_salons()
@@ -453,6 +464,7 @@ def register_salon():
                 "name": st.session_state.new_name,
                 "phone": st.session_state.new_phone,
                 "location": st.session_state.new_location,
+                "owner_id": "",
                 "coords": coords,
                 "stylists": [],
                 "category": "hair",
@@ -709,6 +721,81 @@ def area_select(label, options, key):
     return st.selectbox(label, options, key=key)
 
 
+# 「내 위치」 단추: 브라우저에게 지금 위치를 물어 (위도, 경도)를 Python 으로 돌려준다.
+# 위치 권한을 막았거나 찾지 못하면 error 글을 돌려준다. localhost 나 https 주소에서만 브라우저가 위치를 알려 준다
+MY_LOCATION = st.components.v2.component(
+    "my_location",
+    html='<button class="loc-btn" type="button">◎ 내 위치</button><p class="loc-msg"></p>',
+    css="""
+    .loc-btn {
+        width: 100%; padding: 0.4rem 0.75rem; border-radius: 0.5rem; cursor: pointer; font: inherit;
+        background: var(--st-background-color); color: var(--st-text-color);
+        border: 1px solid rgba(26, 26, 26, 0.2);
+    }
+    .loc-btn:hover:not(:disabled) { border-color: var(--st-primary-color); color: var(--st-primary-color); }
+    .loc-btn:disabled { opacity: 0.6; cursor: wait; }
+    .loc-msg { margin: 0.3rem 0 0; font-size: 0.85rem; color: rgba(26, 26, 26, 0.6); }
+    .loc-msg:empty { display: none; }
+    """,
+    js="""
+    export default function ({ parentElement, setTriggerValue }) {
+        const button = parentElement.querySelector(".loc-btn");
+        const msg = parentElement.querySelector(".loc-msg");
+        const done = (value) => {
+            button.disabled = false;
+            msg.textContent = "";
+            setTriggerValue("located", value);
+        };
+        button.onclick = () => {
+            if (!navigator.geolocation) {
+                done({ error: "이 브라우저는 위치를 알려 주지 않아요" });
+                return;
+            }
+            button.disabled = true;
+            msg.textContent = "위치를 찾는 중이에요…";
+            navigator.geolocation.getCurrentPosition(
+                (p) => done({ lat: p.coords.latitude, lng: p.coords.longitude }),
+                (e) => done({ error: e.code === 1 ? "브라우저에서 위치 권한을 허용해 주세요" : "위치를 찾지 못했어요" }),
+                { timeout: 10000 },
+            );
+        };
+    }
+    """,
+)
+
+
+def distance_km(a, b):
+    # 두 좌표 사이 거리(km). 지구를 공으로 보고 계산한다
+    lat1, lng1, lat2, lng2 = map(math.radians, (*a, *b))
+    h = math.sin((lat2 - lat1) / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin((lng2 - lng1) / 2) ** 2
+    return 6371 * 2 * math.asin(math.sqrt(h))
+
+
+def apply_my_location(located):
+    # 받은 위치로 가장 가까운 시도를 고르고, 가장 가까운 헤어샵을 상세 판에 띄운다
+    if "error" in located:
+        st.session_state.my_location_note = located["error"]
+        return
+    here = (float(located["lat"]), float(located["lng"]))
+    region = min(REGIONS, key=lambda r: distance_km(here, r[2]))[0]
+    st.session_state.region = st.session_state.region_choice = region
+    st.session_state.city = "전체"
+    st.session_state.gu = "전체"
+    near = [
+        (distance_km(here, salon["coords"]), index)
+        for index, salon in enumerate(st.session_state.salons)
+        if salon.get("coords") and salon_region(salon) == region
+    ]
+    if not near:
+        st.session_state.my_location_note = f"내 위치({region}) 근처에 등록된 헤어샵이 없어요"
+        return
+    km, index = min(near)
+    st.session_state.pick = st.session_state.selected = index
+    st.session_state.my_location_note = (
+        f"내 위치에서 가장 가까운 헤어샵: {st.session_state.salons[index]['name']} (약 {km:.1f}km)"
+    )
+
+
 def reset_search():
     st.session_state.search_q = ""
     st.session_state.city = "전체"
@@ -722,7 +809,12 @@ def find_panel():
     query = st.text_input(
         "검색", placeholder="지역, 헤어샵 이름 검색", key="search_q", label_visibility="collapsed"
     )
-    st.button("◎ 내 위치", key="my_location", width="stretch", disabled=True, help=NOT_READY)
+    # 「내 위치」: 지역 · 시군 · 구 칸보다 먼저 그려야 고른 값을 그 칸들에 넣을 수 있다
+    located = MY_LOCATION(key="my_location", on_located_change=lambda: None).located
+    if located:
+        apply_my_location(located)
+    if st.session_state.get("my_location_note"):
+        st.caption(st.session_state.my_location_note)
 
     st.markdown("**지역 선택**")
     region = region_select(st)
@@ -783,14 +875,16 @@ def main_nav():
                               on_click=go, args=("새 헤어샵 등록",),
                               disabled=not NEW_SALON_OPEN, help=None if NEW_SALON_OPEN else NEW_SALON_CLOSED)
                     st.button("내 대시보드", key="nav_dash", type="tertiary", width="stretch",
-                              disabled=True, help=NOT_READY)
+                              on_click=go, args=("사용자 대시보드",))
                     st.html('<hr class="my-menu-line">')
                     st.button("로그아웃", key="nav_logout", type="tertiary", width="stretch",
                               on_click=sample_login, args=(False,))
             else:
                 st.button("로그인", key="nav_login", type="tertiary", on_click=sample_login, args=(True,),
                           help="샘플 로그인 — 실제 인증은 없어요")
-                st.button("회원가입", key="nav_signup", type="primary", disabled=True, help=NOT_READY)
+                # 회원가입: 구글 계정으로 들어온다. 이미 들어왔으면 맨 위에 이름이 보이므로 숨긴다
+                if not st.user.is_logged_in:
+                    st.button("회원가입", key="nav_signup", type="primary", on_click=st.login, args=("google",))
     if "save_error" in st.session_state:
         st.error(st.session_state.pop("save_error"))
 
@@ -913,7 +1007,7 @@ MAIN_STYLE = f"""
 .st-key-nav_find button {{ border-bottom: 3px solid {THEME_ACCENT} !important; border-radius: 0; padding-bottom: 0.3rem; }}
 .st-key-nav_signup button {{ border-radius: 10px; padding: 0.3rem 1.1rem; }}
 .st-key-nav_signup button p {{ color: #ffffff !important; }}
-/* 회원가입은 아직 자리만 있지만(눌리지 않음) 보라 버튼 모양은 그대로 보이게 한다 */
+/* 회원가입(구글 로그인)이 눌리지 않는 상태가 되어도 보라 버튼 모양은 그대로 보이게 한다 */
 .st-key-nav_signup button:disabled {{ background: {THEME_ACCENT}; border-color: {THEME_ACCENT}; opacity: 0.9; }}
 .st-key-nav_my button {{ border-radius: 999px; }}
 /* 마이페이지 서브메뉴: 좁고 촘촘하게, 글자는 왼쪽 맞춤 */
@@ -1060,6 +1154,11 @@ MAIN_STYLE = f"""
 .tip span {{ font-size: 1.5rem; }}
 .tip b {{ color: {THEME_TEXT}; }}
 .tip p {{ margin: 0.15rem 0 0; font-size: 0.88rem; color: {rgba(THEME_TEXT, 0.65)}; }}
+/* 사용자 대시보드 · 헤어샵 관리: 등록 요청 메시지 */
+.req-head {{ display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; color: {THEME_TEXT}; }}
+.req-head b {{ font-size: 1.1rem; }}
+.req {{ background: {THEME_SOFT}; border-radius: 12px; padding: 0.7rem 0.9rem; color: {THEME_TEXT}; }}
+.req p {{ margin: 0.3rem 0 0; font-size: 0.92rem; line-height: 1.55; }}
 /* 디자이너 카드 */
 [class*="st-key-dcard_"] {{ background: #ffffff; border-radius: 16px !important; }}
 [class*="st-key-dcard_"] img {{ border-radius: 12px; }}
@@ -1083,10 +1182,10 @@ MAIN_STYLE = f"""
     .st-key-brand button p {{ font-size: 1.35rem !important; }}
     .st-key-topnav button p {{ font-size: 0.95rem; white-space: nowrap; }}
     .st-key-nav_signup button {{ padding: 0.2rem 0.8rem; min-height: 0; }}
-    /* 왼쪽 사이드 영역: 안쪽 여백을 줄이고, 아직 「준비 중」인 내 위치 · 필터는 숨긴다 */
+    /* 왼쪽 사이드 영역: 안쪽 여백을 줄이고, 아직 「준비 중」인 필터는 숨긴다 */
     [data-testid="stHorizontalBlock"]:has(.st-key-side) {{ row-gap: 1.2rem; }}
     .st-key-side {{ padding: 1rem; border-radius: 14px; }}
-    .st-key-my_location, .st-key-filters {{ display: none; }}
+    .st-key-filters {{ display: none; }}
     /* 지도: 휴대폰 화면에 다 들어오게 낮춘다 (지도 위에서는 손가락이 지도를 움직이므로 너무 길면 화면을 못 내린다) */
     .st-key-map_area div[id^="map_"] {{ max-height: 340px; }}
     /* 아래 상세 판 */
@@ -1664,6 +1763,113 @@ def designer_detail():
         )
 
 
+def join_requests():
+    # 등록 요청 메시지 (join_requests 표: 헤어샵 · 요청한 디자이너 · 메시지 · 날짜). 한 번만 읽어 둔다
+    if "join_requests" not in st.session_state:
+        try:
+            rows = read_table("join_requests", "request_id")
+        except urllib.error.URLError:
+            rows = []
+        st.session_state.join_requests = rows
+    return st.session_state.join_requests
+
+
+def salon_requests(designer_id, requests):
+    # 헤어샵 관리: 내가 만든 헤어샵마다, 그 헤어샵에 소속 등록을 요청한 디자이너의 메시지를 보여 준다
+    mine = [(index, salon) for index, salon in enumerate(st.session_state.salons) if salon["owner_id"] == designer_id]
+    if not mine:
+        st.caption("내가 만든 헤어샵이 없어요. 헤어샵을 만든 디자이너에게만 등록 요청 메시지가 와요.")
+        return
+    names = {d["id"]: d["name"] for s in st.session_state.salons for d in s.get("designers", [])}
+    for index, salon in mine:
+        rows = sorted(
+            (r for r in requests if r["salon_id"] == salon["salon_id"]),
+            key=lambda r: r.get("requested_on") or "",
+            reverse=True,
+        )
+        with st.container(border=True, key=f"dash_salon_{index}"):
+            st.html(
+                f'<div class="req-head"><b>{html.escape(salon["name"])}</b>'
+                f'<span class="muted">등록 요청 {len(rows)}건 · 소속 디자이너 {len(salon["stylists"])}명</span></div>'
+            )
+            if not rows:
+                st.caption("아직 등록 요청이 없어요")
+            for r in rows:
+                who = names.get(r["stylist_id"], r["stylist_id"])
+                st.html(
+                    f'<div class="req"><b>{html.escape(who)}</b> '
+                    f'<span class="muted">{html.escape(r.get("requested_on") or "")}</span>'
+                    f'<p>{html.escape(r.get("message") or "")}</p></div>'
+                )
+            st.button("헤어샵 세부정보 보기 ›", key=f"dash_shop_{index}", on_click=open_detail, args=(index,))
+
+
+def user_dashboard():
+    # 맨 위 메뉴 줄 → 왼쪽 내 정보 | 오른쪽 탭(포트폴리오 · 헤어샵 관리)
+    # 로그인이 없으므로 디자이너를 골라 그 사람의 대시보드를 본다 (샘플)
+    side, body = page_frame()
+    people = {
+        d["id"]: (index, salon, d)
+        for index, salon in enumerate(st.session_state.salons)
+        for d in salon.get("designers", [])
+    }
+    if not people:
+        with body:
+            st.info("디자이너 자료가 없어요.")
+        return
+    # 이 화면은 위 주 메뉴 어디에도 속하지 않으므로 「헤어샵 찾기」 밑줄을 지운다
+    st.html(
+        f"""<style>
+        .st-key-nav_find button {{ border-bottom: 0 !important; }}
+        .st-key-nav_find button p {{ color: {THEME_TEXT} !important; font-weight: 600 !important; }}
+        </style>"""
+    )
+    requests = join_requests()
+    # 처음에는 등록 요청이 온 헤어샵의 주인을 골라 둔다 (헤어샵 관리를 바로 볼 수 있게)
+    if st.session_state.get("dash_user") not in people:
+        owners = [
+            s["owner_id"] for s in st.session_state.salons
+            if s["owner_id"] in people and any(r["salon_id"] == s["salon_id"] for r in requests)
+        ]
+        st.session_state.dash_user = owners[0] if owners else next(iter(people))
+
+    with side:
+        st.markdown("### 사용자 대시보드")
+        st.caption("로그인이 없어 디자이너를 골라 그 사람의 대시보드를 봐요 (샘플)")
+        st.selectbox(
+            "디자이너",
+            list(people),
+            format_func=lambda i: f"{people[i][2]['name']} · {people[i][1]['name']}",
+            key="dash_user",
+        )
+        _, salon, designer = people[st.session_state.dash_user]
+        profile = designer["profile"]
+        photo = picture(profile["photo_url"], 520) or thumb_uri(str(designer_photo(designer["id"])), 520)
+        st.html(
+            f"""
+            <div class="pro-head">
+                <img class="pro-photo" src="{photo}" alt="{html.escape(designer["name"])}">
+                <h2>{html.escape(designer["name"])} <span class="pro-title">{html.escape(profile["job_title"] or designer_role(designer["career"]))}</span></h2>
+                <p class="muted">📍 {html.escape(salon["name"])} · 경력 {designer["career"]}년</p>
+            </div>
+            """
+        )
+        st.button("내 디자이너 상세 보기 ›", key="dash_profile", width="stretch",
+                  on_click=open_designer, args=(designer["id"],))
+        st.divider()
+        back_button()
+        st.warning("아직 예시 결과입니다")
+
+    with body:
+        owned = {s["salon_id"] for s in st.session_state.salons if s["owner_id"] == designer["id"]}
+        count = sum(r["salon_id"] in owned for r in requests)
+        pf_tab, shop_tab = st.tabs(["포트폴리오", f"헤어샵 관리 ({count})"])
+        with pf_tab:
+            portfolio_tab(designer)
+        with shop_tab:
+            salon_requests(designer["id"], requests)
+
+
 # 첫 화면에 보여 줄 하는 일 세 가지 (PRD.md 사용자 흐름·넣을 기능에서 지금 쓸 수 있는 것)
 # 아이콘은 이모지 대신 강조색 선 그림(SVG)으로 그린다
 LANDING_FEATURES = [
@@ -1975,6 +2181,7 @@ pages = {
     "새 헤어샵 등록": new_salon,
     "헤어샵 세부정보": salon_detail,
     "디자이너 상세": designer_detail,
+    "사용자 대시보드": user_dashboard,
 }
 # 다른 화면으로 넘어가면 맨 위부터 보이게 한다. Streamlit 은 앞 화면의 스크롤 위치를 그대로 두어서,
 # 긴 화면(특히 휴대폰)에서 아래쪽 단추를 누르면 새 화면이 맨 아래에서 열린다

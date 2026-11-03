@@ -6,3 +6,5 @@ anthropic==2.1.0
 pandas==3.0.6
 # 그림을 줄이고 다듬는다: app.py 디자이너 얼굴·그림 미리보기, chatbot.py 동그란 챗봇 아이콘
 pillow==12.3.0
+# 구글 계정으로 들어온다: app.py 의 st.login · st.logout 이 쓴다
+Authlib==1.9.3

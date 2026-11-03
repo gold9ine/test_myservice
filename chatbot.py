@@ -2,6 +2,7 @@ import base64
 import html
 import io
 import urllib.error
+import urllib.parse
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -140,11 +141,15 @@ def reply_once(history, api_key, tone):
 LOG_TABLE = "chatbot_logs"
 KST = timezone(timedelta(hours=9))
 
+# 이름 칸이 비었을 때 안내: 이름(owner)이 있어야 기록을 남기고, 그 이름의 기록만 보여 준다
+OWNER_NEEDED_SAVE = "위 이름 칸에 이름을 넣으면 대화 기록을 남길 수 있어요."
+OWNER_NEEDED_LIST = "위 이름 칸에 이름을 넣으면 내 지난 기록을 볼 수 있어요."
 
-def save_log(db, question, answer, tone, model):
+
+def save_log(db, question, answer, tone, model, owner):
     # AI 가 답할 때마다 넣은 말과 받은 답을 한 줄 남긴다. 실패하면 오류 문구를 돌려준다 (대화는 계속된다)
     try:
-        db("POST", LOG_TABLE, {"question": question, "answer": answer, "tone": tone, "model": model})
+        db("POST", LOG_TABLE, {"question": question, "answer": answer, "tone": tone, "model": model, "owner": owner})
     except urllib.error.HTTPError as error:
         return f"기록을 남기지 못했어요 ({error.code}). 대화는 계속할 수 있어요."
     except (urllib.error.URLError, TimeoutError):
@@ -152,13 +157,19 @@ def save_log(db, question, answer, tone, model):
     return None
 
 
-def show_logs(db):
-    # 지난 기록 목록: 최근 50개, 새 기록이 위로
+def show_logs(db, owner):
+    # 지난 기록 목록: owner 가 이름 칸과 같은 줄만, 최근 50개, 새 기록이 위로
     if db is None:
         st.caption(".env 에 Supabase 주소와 키를 채우면 지난 기록을 볼 수 있어요.")
         return
+    if not owner:
+        st.info(OWNER_NEEDED_LIST)
+        return
     try:
-        rows = db("GET", f"{LOG_TABLE}?select=*&order=created_at.desc&limit=50")
+        rows = db(
+            "GET",
+            f"{LOG_TABLE}?select=*&owner=eq.{urllib.parse.quote(owner)}&order=created_at.desc&limit=50",
+        )
     except urllib.error.HTTPError as error:
         if error.code == 404:
             st.warning(f"Supabase 에 {LOG_TABLE} 표가 아직 없어요. supabase_chatbot_logs.sql 을 실행해 주세요.")
@@ -283,15 +294,17 @@ def render(api_key, db=None):
         with st.popover("챗봇", help="꽃사슴 상담 챗봇"):
             with st.container(key="chatbot_panel"):
                 st.markdown("**꽃사슴 상담 챗봇**")
+                # 이름 칸: 저장할 때 owner 로 적고, 지난 기록은 이 이름의 것만 보여 준다
+                owner = st.text_input("이름", key="chatbot_owner", placeholder="기록을 남기고 볼 이름").strip()
                 chat_tab, logs_tab = st.tabs(["대화", "지난 기록"])
                 # 대화를 먼저 처리해 방금 남긴 기록까지 지난 기록 목록에 보이게 한다
                 with chat_tab:
-                    chat(api_key, db, avatar)
+                    chat(api_key, db, avatar, owner)
                 with logs_tab:
-                    show_logs(db)
+                    show_logs(db, owner)
 
 
-def chat(api_key, db, avatar):
+def chat(api_key, db, avatar, owner):
     # 말투 고르는 칸: 고른 말투는 다음 답부터 적용된다
     tone = st.selectbox("말투", list(TONES), key="chatbot_tone")
     if not api_key:
@@ -320,9 +333,9 @@ def chat(api_key, db, avatar):
             history.append({"role": "model", "text": RETRY_REPLY, "local": True})
         elif answer:
             history.append({"role": "model", "text": answer})
-            # AI 가 답했을 때만 Supabase 에 남긴다 (빈칸 안내·오류는 남기지 않음)
+            # AI 가 답했을 때만 Supabase 에 남긴다 (빈칸 안내·오류는 남기지 않음). 이름이 비면 남기지 않고 안내한다
             if db is not None:
-                log_error = save_log(db, question, answer, tone, model)
+                log_error = save_log(db, question, answer, tone, model, owner) if owner else OWNER_NEEDED_SAVE
         else:
             history.pop()
 

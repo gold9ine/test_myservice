@@ -1995,7 +1995,7 @@ if st.session_state.get("shown_page") != st.session_state.page:
 pages[st.session_state.page]()
 
 # 저작권: 어느 화면에서든 맨 아래에 한 줄
-st.caption("© 2026 By. 행님", text_alignment="center")
+st.caption("© 2026 By. HangNim", text_alignment="center")
 
 # 상담 챗봇: 어느 화면에서든 오른쪽 아래 아이콘으로 연다. Supabase 가 있고 쓰기가 열려 있으면 대화 기록을 남긴다
 chatbot.render(
